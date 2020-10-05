@@ -1,0 +1,110 @@
+/** MIT License
+
+Copyright (c) 2020 Makoto Suwama
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+/**
+Code used to check the number of cycles coming from the sum of squares of digits in base b for the paper Integer Dynamics with Dino Lorenzini, Mentzelos Melistas, Arvind Suresh and Haiyang Wang
+Checks whether there are at least numCycles cycles in base b for maxTime amount of time
+Uses precompute 2 cycles from twoCycles.txt
+
+Example:
+magma cyclesManyBases.mgm lows:=100 highs:=1000
+*/
+
+// Requires bs to be defined as a string beforehand
+low := StringToInteger(lows);
+high := StringToInteger(highs);
+
+// Number of cycles we want to find
+numCycles := 3;
+// Maximum time we are spending on each b
+maxTime:= 3600;
+// Directory to save the output
+directory := "";
+// precomputed data of bases with two cycles
+load "~/twoCycles.txt";
+
+// bound on the size of the set seen. Required since there may be memory issue if the set gets too big
+bound := 2^(28.7);
+// the interval of b/2 at which we output the current progress
+interval := 10^3;
+
+// Computes next integer in the sequence
+Poly := function(n,b)
+    D:=Intseq(n,b);
+    f:=0;
+    for d in D do
+	f:=f+d^2;
+    end for;
+    return f;
+end function;
+
+output := directory cat "dataHP" cat lows cat "-" cat highs cat ".txt"; 
+
+S:=[];
+startT:=Cputime();
+Write(output, "b, length, generators");
+for a in [low..high] do
+    if a mod interval eq 0 then print a, Cputime(startT);end if;
+    // Only check even bases b since odd base has at least 3 1-cycles
+    b := 2*a;
+    // If it is not prime, then there are at least 3 1-cycles
+    if not IsPrime(b^2+1) then continue; end if;
+    seen := {};
+    cycles:=[[1]];
+    t0 := Cputime();
+    // Add known 2 cycles
+    for p in seq do
+	// p = [ [b0,b1], [x0,x1], [y0,y1], [u0,u1], [v0,v1]]
+	if (b - p[1][1]) mod p[1][2] eq 0 then
+	    k := Floor((b-p[1][1])/p[1][2]);
+	    x := p[2][1] + k*p[2][2];
+	    y := p[3][1] + k*p[3][2];
+	    u := p[4][1] + k*p[4][2];
+	    v := p[5][1] + k*p[5][2];	
+	    if x ge 0 and y ge 0 and u ge 0 and v ge 0 and x+y*b notin seen then
+		Append(~cycles, [x+y*b, u+v*b]);
+		Include(~seen, x+y*b);
+		Include(~seen, u+v*b);
+	    end if;
+	end if;
+    end for;
+    for j in [2..b^2-1] do
+	if #cycles ge numCycles then break; end if;
+	// Counter to see how the computation is going
+	if Cputime(t0) gt maxTime then break; end if;
+	L := [j];
+	n := j;
+	while n notin seen do
+	    Include(~seen, n);
+	    n:=Poly(n,b);
+	    Append(~L,n);
+	    // if n < j then we have seen it already
+	    if n le j then break;end if;
+	end while;
+	x := Position(L, n);
+	// x=0 means x is not in L, and x=#L means it appeared in L for the first time, i.e. it has seen in previous computation: In either of the cases skip it
+	if x ne 0 and x ne #L then
+	    // cycle starts at x and finishes at #L-1
+	    Append(~cycles, L[x..#L-1]);
+	end if;
+	// Reset seen if it gets too big. Retain numbers appearing in cycles to avoid repetition
+	if #seen ge bound then seen := Set(&cat(cycles)); end if;
+    end for;
+    if #cycles lt numCycles then
+	Write(directory cat "badBs" cat lows cat "-" cat highs cat ".txt", b);
+	Append(~S,b);
+    end if;
+    Write(output, b);
+    Write(output,  [#c : c in cycles]);
+    Write(output, [c[1] : c in cycles]);
+    Write(output, "");
+end for;
+Write(output, S);
